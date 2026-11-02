@@ -1436,10 +1436,15 @@ class CredentialPool:
                 if not candidates:
                     perf_metrics.inc("capacity_acquire_failures")
                     raise self._capacity_error()
-            best = candidates[0]
-            free = self._model_free(best, model)
-            top = [e for e in candidates if self._model_free(e, model) == free
-                   and self._expiry_rank(e) == self._expiry_rank(best)]
+            if CONFIG.get("route_balance") == "round-robin":
+                # Spread sessions across every healthy candidate; credit tiering would
+                # otherwise pin all traffic on the soonest-expiry account.
+                top = list(candidates)
+            else:
+                best = candidates[0]
+                free = self._model_free(best, model)
+                top = [e for e in candidates if self._model_free(e, model) == free
+                       and self._expiry_rank(e) == self._expiry_rank(best)]
             if skey and skey in self._sticky:
                 cid, _ = self._sticky[skey]
                 sticky = next((e for e in top if e["id"] == cid), None)

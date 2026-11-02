@@ -123,6 +123,30 @@ class CredentialRuntimeTests(unittest.TestCase):
         self.assertIsNone(pool.pick("session", "glm-5.3-flash"))
         self.assertIs(pool.pick("another", "deepseek-v4-flash"), manager)
 
+    def test_credit_balance_pins_soonest_expiry_and_round_robin_spreads(self):
+        paths = [self.credential(f"tiered{i}.info", uid=f"tiered{i}") for i in range(3)]
+        pool = converter.CredentialPool(paths)
+        expiries = {f"tiered{i}.info": 1000.0 + i for i in range(3)}
+
+        class Ledger:
+            @staticmethod
+            def entry(cid):
+                return {}
+
+            @staticmethod
+            def soonest_expiry_of(cid):
+                return expiries.get(Path(cid).name)
+
+        pool._ledger = Ledger()
+        # Default credits mode: distinct expiry ranks tier the candidates, so every
+        # session lands on the single soonest-expiry account.
+        pinned = {id(pool.pick(f"pinned-{i}", "glm-5.3-flash")) for i in range(4)}
+        self.assertEqual(len(pinned), 1)
+        # Round-robin mode ignores the tiering and cycles healthy candidates.
+        with patch.dict(converter.CONFIG, {"route_balance": "round-robin"}):
+            picked = [pool.pick(f"spread-{i}", "glm-5.3-flash") for i in range(3)]
+        self.assertEqual(len({id(manager) for manager in picked}), 3)
+
     def test_explicit_import_reloads_without_replacing_manager(self):
         path = self.credential(age=0)
         pool = converter.CredentialPool([path], scan=True)
